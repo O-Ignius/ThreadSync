@@ -99,17 +99,19 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
         Lista->first->pessoa = pessoa;
         Lista->first->prox = NULL;
     }
+    //se fila tiver mais de 1 item
     else if (aux->prox != NULL) {
+        //verifica se deve adicionar no inicio da fila
         if (aux->pessoa.prioridade < pessoa.prioridade) {
             auxPosi = aux;
             inseriu = 1;
-            while (auxPosi->prox != NULL)
+            while (auxPosi != NULL)
             {
                 auxPosi->pessoa.espera++;   //aumenta a espera de todos na fila
-                if (aux->pessoa.espera > (medidorPaciencia - 1)) {
-                    aumentaPrioridade = aux->pessoa.espera / medidorPaciencia;
-                    aux->pessoa.espera = aux->pessoa.espera % medidorPaciencia;
-                    aux->pessoa.prioridade += aumentaPrioridade;
+                if (auxPosi->pessoa.espera > (medidorPaciencia - 1)) {
+                    aumentaPrioridade = auxPosi->pessoa.espera / medidorPaciencia;
+                    auxPosi->pessoa.espera = auxPosi->pessoa.espera % medidorPaciencia;
+                    auxPosi->pessoa.prioridade += aumentaPrioridade;
                 }
 
                 auxPosi = auxPosi->prox;
@@ -119,37 +121,40 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
             erroAloc(alocAUX);
             alocAUX->pessoa = pessoa;
             alocAUX->prox = aux;
-            aux = alocAUX;
+            Lista->first = alocAUX;
         }
+        //se não adicionar no inicio, verifica qual posição da fila deve ser adicionado
+        else {
+            while (aux->prox != NULL)
+            {
+                if (aux->prox->pessoa.prioridade < pessoa.prioridade) {
+                    auxPosi = aux;
+                    inseriu = 1;
+                    while (auxPosi != NULL)
+                    {
+                        auxPosi->pessoa.espera++;   //aumenta a espera de todos na fila
+                        if (auxPosi->pessoa.espera > (medidorPaciencia - 1)) {
+                            aumentaPrioridade = auxPosi->pessoa.espera / medidorPaciencia;
+                            auxPosi->pessoa.espera = auxPosi->pessoa.espera % medidorPaciencia;
+                            auxPosi->pessoa.prioridade += aumentaPrioridade;
+                        }
 
-        while (aux->prox != NULL)
-        {
-            if (aux->pessoa.prioridade < pessoa.prioridade) {
-                auxPosi = aux;
-                inseriu = 1;
-                while (auxPosi->prox != NULL)
-                {
-                    auxPosi->pessoa.espera++;   //aumenta a espera de todos na fila
-                    if (aux->pessoa.espera > (medidorPaciencia - 1)) {
-                        aumentaPrioridade = aux->pessoa.espera / medidorPaciencia;
-                        aux->pessoa.espera = aux->pessoa.espera % medidorPaciencia;
-                        aux->pessoa.prioridade += aumentaPrioridade;
+                        auxPosi = auxPosi->prox;
                     }
 
-                    auxPosi = auxPosi->prox;
+                    alocAUX = malloc(sizeof(*Lista->first));
+                    erroAloc(alocAUX);
+                    alocAUX->pessoa = pessoa;
+                    alocAUX->prox = aux->prox;
+                    aux->prox = alocAUX;
+                    
+                    break;
                 }
 
-                alocAUX = malloc(sizeof(*Lista->first));
-                erroAloc(alocAUX);
-                alocAUX->pessoa = pessoa;
-                alocAUX->prox = aux;
-                aux = alocAUX;
-
-                break;
+                aux = aux->prox;                    //avança o ponteiro
             }
-
-            aux = aux->prox;                    //avança o ponteiro
         }
+        //se não adicionou, deve-se adicioná-lo ao final da fila
         if (inseriu == 0) {
             aux->prox = malloc(sizeof(*Lista->first));
             erroAloc(aux->prox);                          //verifica se funcionou
@@ -157,6 +162,7 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
             aux->prox->prox = NULL;
         }
     }
+    //se fila tiver somente 1 item
     else {
         if (aux->pessoa.prioridade < pessoa.prioridade) {
             alocAUX = malloc(sizeof(*Lista->first));    //aloca ponteiro auxiliar
@@ -424,7 +430,7 @@ void parte1Trab(cidadaos formigopolis, int qntRep) {
     argsT args;
     int i = 0;
 
-    args.atendidos = 0; args.esperando = 0; args.qntAtend = atendPart1;
+    args.atendidos = 0; args.esperando = 0; args.qntAtend = (atendPart1 * qntRep);
     args.formigopolis = formigopolis;
 
     //cria threads para cada pessoa:
@@ -506,7 +512,7 @@ void parte2Trab(cidadaos formigopolis, int qntRep) {
     argsT args;
     int i = 0;
 
-    args.atendidos = 0; args.esperando = 0; args.qntAtend = atendPart2;
+    args.atendidos = 0; args.esperando = 0; args.qntAtend = (atendPart2 * qntRep);
     args.formigopolis = formigopolis;
 
     //cria threads para cada pessoa:
