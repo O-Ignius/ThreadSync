@@ -62,6 +62,7 @@ typedef struct
     lista FIFO;
     cidadaos formigopolis;
     int atendidos, esperando;
+    int qntAtend;
 }argsT;
 
 //fim argumentos para threads
@@ -99,6 +100,28 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
         Lista->first->prox = NULL;
     }
     else if (aux->prox != NULL) {
+        if (aux->pessoa.prioridade < pessoa.prioridade) {
+            auxPosi = aux;
+            inseriu = 1;
+            while (auxPosi->prox != NULL)
+            {
+                auxPosi->pessoa.espera++;   //aumenta a espera de todos na fila
+                if (aux->pessoa.espera > (medidorPaciencia - 1)) {
+                    aumentaPrioridade = aux->pessoa.espera / medidorPaciencia;
+                    aux->pessoa.espera = aux->pessoa.espera % medidorPaciencia;
+                    aux->pessoa.prioridade += aumentaPrioridade;
+                }
+
+                auxPosi = auxPosi->prox;
+            }
+
+            alocAUX = malloc(sizeof(*Lista->first));
+            erroAloc(alocAUX);
+            alocAUX->pessoa = pessoa;
+            alocAUX->prox = aux;
+            aux = alocAUX;
+        }
+
         while (aux->prox != NULL)
         {
             if (aux->pessoa.prioridade < pessoa.prioridade) {
@@ -107,11 +130,13 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
                 while (auxPosi->prox != NULL)
                 {
                     auxPosi->pessoa.espera++;   //aumenta a espera de todos na fila
-                    if (aux->pessoa.espera > 1) {
+                    if (aux->pessoa.espera > (medidorPaciencia - 1)) {
                         aumentaPrioridade = aux->pessoa.espera / medidorPaciencia;
                         aux->pessoa.espera = aux->pessoa.espera % medidorPaciencia;
                         aux->pessoa.prioridade += aumentaPrioridade;
                     }
+
+                    auxPosi = auxPosi->prox;
                 }
 
                 alocAUX = malloc(sizeof(*Lista->first));
@@ -119,6 +144,8 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
                 alocAUX->pessoa = pessoa;
                 alocAUX->prox = aux;
                 aux = alocAUX;
+
+                break;
             }
 
             aux = aux->prox;                    //avança o ponteiro
@@ -139,12 +166,13 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
 
             //aumenta espera
             aux->pessoa.espera++;
-            if (aux->pessoa.espera > 1) {
+            if (aux->pessoa.espera > (medidorPaciencia - 1)) {
                 aumentaPrioridade = aux->pessoa.espera / medidorPaciencia;
                 aux->pessoa.espera = aux->pessoa.espera % medidorPaciencia;
                 aux->pessoa.prioridade += aumentaPrioridade;
             }
-            aux = alocAUX;                              //aponta a posição atual para a posição alocada
+            
+            Lista->first = alocAUX;                              //aponta a 1° posição atual para a posição alocada
         }
         else {
             aux->prox = malloc(sizeof(*Lista->first));
@@ -257,20 +285,41 @@ void printaFila(lista FIFO) {
 
 void travaEADDFIFO(argsT *args, Pessoa p) {
     pthread_mutex_lock(&trava_fila);                        //trava a fila
-        pthread_cond_wait(&espera_proximo, &trava_fila);    //espera alguem chegar
+        if (args->FIFO.first != NULL) {
+            pthread_cond_wait(&espera_proximo, &trava_fila);    //espera alguem chegar
+                printf("%s chegou na fila ", p.nome);
+                insereFilaPrior(&(args->FIFO), p);
+                printaFila(args->FIFO);
+                fflush(stdout);
+            
+                //USADO SOMENTE PARA DEPURAÇÃO | FIRULAS
+                args->esperando++;
+            pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
+        }
+        else {
             printf("%s chegou na fila ", p.nome);
             insereFilaPrior(&(args->FIFO), p);
             printaFila(args->FIFO);
-        
+            
             //USADO SOMENTE PARA DEPURAÇÃO | FIRULAS
             args->esperando++;
-        pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
+
+            pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
+        }
     pthread_mutex_unlock(&trava_fila);  
 }
 
+//tenta criar thread
+void criaThread(pthread_t *valThread, void *funcao, void *args) {
+    if (pthread_create(valThread, NULL, funcao, args) != 0) {
+        perror("Erro de criação de thread! ");
+        exit(1);
+    }
+}
 
 //reordenar fila
-void *reordFIFO(argsT *args) {
+void *reordFIFO(void *t) {
+    argsT *args = (argsT *) t;
     pointer aux = args->FIFO.first;
     Pessoa pReinsert;
     int auxI;
@@ -305,7 +354,9 @@ void *reordFIFO(argsT *args) {
 }
 //fim reordernar fila
 //thread caixa
-void* caixaEle(argsT *args) {
+void* caixaEle(void *t) {
+    argsT *args = (argsT *) t;
+
     while (1)
     {
         pthread_mutex_lock(&trava_fila);                        //trava a fila
@@ -317,114 +368,223 @@ void* caixaEle(argsT *args) {
                     args->atendidos++;
                     args->esperando--;
                     
-                    if (args->atendidos == atendPart1) {
+                    if (args->atendidos == args->qntAtend) {
                         pthread_mutex_unlock(&trava_fila);
-                        break;
+                        pthread_exit(NULL);                            //finaliza programa
+                    }
+
+                    if (args->esperando + args->atendidos != args->qntAtend) {
+                        pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
                     }
                 }
                 else {
-                    pthread_cond_signal(&espera_proximo);               //sinaliza para o próximo ir para o inicio da fila
-                    //pthread_cond_wait(&espera_chegada, &trava_fila);   //espera alguem chegar
+                    if (args->esperando + args->atendidos != args->qntAtend) {
+                        pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
+                    }
                 }
         pthread_mutex_unlock(&trava_fila);                              //libera fila/
     }
-    return NULL;
 }
 //fim thread caixa
 
 //parte 1:
 //thread clientes
-void* pGravida(argsT *args) {
+void* pGravida(void *t) {
+    argsT *args = (argsT *) t;
+
     travaEADDFIFO(args, args->formigopolis.gravidas[0]);
+    pthread_exit(NULL);                            //finaliza programa
 }
 
-void *pIdosa(argsT *args) {
+void *pIdosa(void *t) {
+    argsT *args = (argsT *) t;
+
     travaEADDFIFO(args, args->formigopolis.idoso[0]);
+    pthread_exit(NULL);                            //finaliza programa
 }
 
-void *pDefic(argsT *args) {
+void *pDefic(void *t) {
+    argsT *args = (argsT *) t;
+
     travaEADDFIFO(args, args->formigopolis.deficiente[0]);  
+    pthread_exit(NULL);                            //finaliza programa
 }
 
-void *pComum(argsT *args) {
-   travaEADDFIFO(args, args->formigopolis.comum[0]);
+void *pComum(void *t) {
+    argsT *args = (argsT *) t;
+
+    travaEADDFIFO(args, args->formigopolis.comum[0]);
+    pthread_exit(NULL);                            //finaliza programa
 }
 //fim thread clientes
 
 //principal
-void parte1Trab() {
-    pthread_t gravida, idoso, defic, comum, caixa, reordenador;
+void parte1Trab(cidadaos formigopolis, int qntRep) {
+    pthread_t gravida[qntRep], idoso[qntRep], defic[qntRep], comum[qntRep], caixa, reordenador;
     argsT args;
-    cidadaos formigopolis;
-    //argsT args;
-    args.atendidos = 0; args.esperando = 0;
+    int i = 0;
 
-    //criando as pessoas
-        //Gravidas
-        criaPessoas(&(formigopolis.gravidas[0]), "Maria", priorGravida);
-
-        //Idosos
-        criaPessoas(&(formigopolis.idoso[0]), "Vanda", priorIdoso);
-
-        //deficiente
-        criaPessoas(&(formigopolis.deficiente[0]), "Paula", priorDefic);
-
-        //comum
-        criaPessoas(&(formigopolis.comum[0]), "Sueli", priorComum);
-    //fim criando as pessoas
-
+    args.atendidos = 0; args.esperando = 0; args.qntAtend = atendPart1;
     args.formigopolis = formigopolis;
 
-
     //cria threads para cada pessoa:
-    pthread_create(&gravida, NULL, pGravida, &args);
-    pthread_create(&idoso, NULL, pIdosa, &args);
-    pthread_create(&defic, NULL, pDefic, &args);
-    pthread_create(&comum, NULL, pComum, &args);
+    while (i < qntRep)
+    {
+        criaThread(&(gravida[i]), pGravida, &args);
+        criaThread(&(idoso[i]), pIdosa, &args);
+        criaThread(&(defic[i]), pDefic, &args);
+        criaThread(&(comum[i]), pComum, &args);
 
-    sleep(1);//sleep para garantir que as outras threads foram criadas e já estão esperando
+        i++;
+    }
+
+    //sleep(1);//sleep para garantir que as outras threads foram criadas e já estão esperando
 
     //começa o atendimento
-    //pthread_create(&reordenador, NULL, reordFIFO, &args);
-    pthread_create(&caixa, NULL, caixaEle, &args);
+    if (qntRep > 0) {
+        //pthread_create(&reordenador, NULL, reordFIFO, &args);
+        pthread_create(&caixa, NULL, caixaEle, &args);
+    }
 
     //espera threads
-    pthread_join(gravida, NULL);
-    pthread_join(idoso, NULL);
-    pthread_join(defic, NULL);
-    pthread_join(comum, NULL);
-    pthread_join(caixa, NULL);
-    //pthread_join(reordenador, NULL);
+    /*
+    i = 0;
+    while (i < qntRep)
+    {
+        pthread_join((gravida[i]), NULL);
+        pthread_join((idoso[i]), NULL);
+        pthread_join((defic[i]), NULL);
+        pthread_join((comum[i]), NULL);
+        
+        i++;
+    }
+    */
+
+    if (qntRep > 0) {
+        pthread_join(caixa, NULL);
+        //pthread_join(reordenador, NULL);
+    }
 
     printf("\n\t!! Foram atendidas %d pessoas !! \n\n", args.atendidos);
 }
 //fim principal
-
 //fim parte 1
 
+//parte 2 trabalho
+void* pGravida2(void *t) {
+    argsT *args = (argsT *) t;
+
+    travaEADDFIFO(args, args->formigopolis.gravidas[1]);
+    pthread_exit(NULL);                            //finaliza programa
+}
+
+void *pIdosa2(void *t) {
+    argsT *args = (argsT *) t;
+
+    travaEADDFIFO(args, args->formigopolis.idoso[1]);
+    pthread_exit(NULL);                            //finaliza programa
+}
+
+void *pDefic2(void *t) {
+    argsT *args = (argsT *) t;
+
+    travaEADDFIFO(args, args->formigopolis.deficiente[1]);  
+    pthread_exit(NULL);                            //finaliza programa
+}
+
+void *pComum2(void *t) {
+    argsT *args = (argsT *) t;
+
+    travaEADDFIFO(args, args->formigopolis.comum[1]);
+    pthread_exit(NULL);                            //finaliza programa
+}
+
+
+//principal
+void parte2Trab(cidadaos formigopolis, int qntRep) {
+    pthread_t gravida[(qntRep * 2)], idoso[(qntRep * 2)], defic[(qntRep * 2)], comum[(qntRep * 2)], caixa, reordenador;
+    argsT args;
+    int i = 0;
+
+    args.atendidos = 0; args.esperando = 0; args.qntAtend = atendPart2;
+    args.formigopolis = formigopolis;
+
+    //cria threads para cada pessoa:
+    while (i < (qntRep * 2))
+    {
+        criaThread(&(gravida[i]), pGravida, &args);
+        criaThread(&(idoso[i]), pIdosa, &args);
+        criaThread(&(defic[i]), pDefic, &args);
+        criaThread(&(comum[i]), pComum, &args);
+
+        i++;
+
+        criaThread(&(gravida[i]), pGravida2, &args);
+        criaThread(&(idoso[i]), pIdosa2, &args);
+        criaThread(&(defic[i]), pDefic2, &args);
+        criaThread(&(comum[i]), pComum2, &args);
+
+        i++;
+    }
+
+    //começa o atendimento
+    if (qntRep > 0) {
+        pthread_create(&reordenador, NULL, reordFIFO, &args);
+        pthread_create(&caixa, NULL, caixaEle, &args);
+    }
+
+    //espera threads
+    /*
+    i = 0;
+    while (i < (qntRep * 2))
+    {
+        pthread_join(gravida[i], NULL);
+        pthread_join(idoso[i], NULL);
+        pthread_join(defic[i], NULL);
+        pthread_join(comum[i], NULL);
+
+        i++;
+
+        pthread_join(gravida[i], NULL);
+        pthread_join(idoso[i], NULL);
+        pthread_join(defic[i], NULL);
+        pthread_join(comum[i], NULL);
+    }
+    */
+    if (qntRep > 0) {
+        pthread_join(caixa, NULL);
+        //pthread_join(reordenador, NULL);
+    }
+    
+    printf("\n\t!! Foram atendidas %d pessoas !! \n\n", args.atendidos);
+}
+//fim principal
+//fim parte 2
+
 int main () {
+    cidadaos formigopolis;
     Pessoa Grav[2], Idoso[2], Defic[2], Comum[2];
     lista fifoPrior;
-    int vetP1[atendPart1], vetP2[atendPart2], op = -1;
+    int vetP1[atendPart1], vetP2[atendPart2], op = -1, qntRep = 1;
 
     srand(time(NULL));
     
     //criando as pessoas
         //Gravidas
-        criaPessoas(&(Grav[0]), "Maria", priorGravida);
-        criaPessoas(&(Grav[1]), "Marcos", priorGravida);
-
+        criaPessoas(&(formigopolis.gravidas[0]), "Maria", priorGravida);
+        criaPessoas(&(formigopolis.gravidas[1]), "Marcos", priorGravida);
+        
         //Idosos
-        criaPessoas(&(Idoso[0]), "Vanda", priorIdoso);
-        criaPessoas(&(Idoso[1]), "Valter", priorIdoso);
+        criaPessoas(&(formigopolis.idoso[0]), "Vanda", priorIdoso);
+        criaPessoas(&(formigopolis.idoso[1]), "Valter", priorIdoso);
 
         //deficiente
-        criaPessoas(&(Defic[0]), "Paula", priorDefic);
-        criaPessoas(&(Defic[1]), "Pedro", priorDefic);
+        criaPessoas(&(formigopolis.deficiente[0]), "Paula", priorDefic);
+        criaPessoas(&(formigopolis.deficiente[1]), "Pedro", priorDefic);
 
         //comum
-        criaPessoas(&(Comum[0]), "Sueli", priorComum);
-        criaPessoas(&(Comum[1]), "Silas", priorComum);
+        criaPessoas(&(formigopolis.comum[0]), "Sueli", priorComum);
+        criaPessoas(&(formigopolis.comum[1]), "Silas", priorComum);
     //fim criando as pessoas
 
     while (op != 0) {
@@ -436,10 +596,14 @@ int main () {
         case 0:
             break;
         case 1:
-            parte1Trab();
+            printf("\tDigite quantas vezes cada pessoa irá utilizar o caixa:\n- ");
+            scanf("%d", &qntRep);
+            parte1Trab(formigopolis, qntRep);
             break;
         case 2:
-            //parte2Trab();
+            printf("\tDigite quantas vezes cada pessoa irá utilizar o caixa:\n- ");
+            scanf("%d", &qntRep);
+            parte2Trab(formigopolis, qntRep);
             break;
         default:
             printf("\n\t! OPÇÃO INVÁLIDA !\n");
