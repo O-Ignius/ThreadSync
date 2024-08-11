@@ -7,16 +7,16 @@
 
 #include <sys/wait.h>
 
-#define atendPart1 4
-#define atendPart2 8
+#define atendPart1 4        //quantia de pessoas atendidas na parte 2
+#define atendPart2 8        //quantia de pessoas atendidas na parte 2
 
 #define medidorPaciencia 2  //constante para determinar o quanto é passivel alguem passar na sua frente na fila
-#define esperaReordena 4
+#define esperaReordena 0    //constante para setar um tempo para o reordenador esperar antes de reordenar novamente
 
-#define priorGravida 4
-#define priorIdoso 3
-#define priorDefic 2
-#define priorComum 1
+#define priorGravida 4      //prioridade base de gravida
+#define priorIdoso 3        //prioridade base de idoso
+#define priorDefic 2        //prioridade base de deficiente
+#define priorComum 1        //prioridade base de pessoa comum
 
 /*
 Precedencias:
@@ -74,12 +74,14 @@ pthread_cond_t espera_proximo = PTHREAD_COND_INITIALIZER;
 //
 
 //lidar com a lista
+//verifica lista vazia
 int Empt (lista Lista) {
     if (Lista.first == NULL) {
         return 1;
     }
 }
 
+//verifica se deu erro de alocação de memória
 void erroAloc(void* p) {
     if (p == NULL) {
         perror("Erro de alocação de memória! ");
@@ -87,6 +89,7 @@ void erroAloc(void* p) {
     }
 }
 
+//insere na fila de acordo com o valor da prioridade da pessoa
 void insereFilaPrior(lista *Lista, Pessoa pessoa) {
     pointer aux = Lista->first;
     pointer alocAUX = NULL, auxPosi = NULL;
@@ -189,28 +192,7 @@ void insereFilaPrior(lista *Lista, Pessoa pessoa) {
     }
 }
 
-void reordenaFila(lista *FIFO) {
-    pointer aux = FIFO->first;
-    pointer segPosProx, segPosAt;
-
-    if (Empt(*FIFO) != 1) {
-        while (aux != NULL)
-        {
-            if (aux->prox != NULL) {
-                if (aux->prox->pessoa.prioridade > aux->pessoa.prioridade) {
-                    segPosProx = aux->prox;
-                    segPosAt = aux;
-                    segPosAt->prox = segPosProx->prox;
-                    segPosProx->prox = segPosAt;
-                    aux = segPosProx;
-                }
-            }
-            
-            aux = aux->prox;
-        }
-    }
-}
-
+//remove a primeira célula da fila e a retorna
 Pessoa removeFIFO(lista *Lista) {
     pointer auxFIFO = NULL;
     Pessoa atendida;
@@ -227,6 +209,7 @@ Pessoa removeFIFO(lista *Lista) {
     return atendida;
 }
 
+//remove uma celula da fila, a remoção ocorre com relação ao indice i passado, onde a célula removida é retornada para ser recolocada na fila com relação a sua prioridade
 Pessoa removeFIFOPReordena(lista *Lista, int i) {
     pointer auxFIFO = Lista->first, aux2 = NULL;
     Pessoa reordenada;
@@ -236,21 +219,25 @@ Pessoa removeFIFOPReordena(lista *Lista, int i) {
         printf("FIFO vazia!\n");
         exit(1);
     }
-    else if (aux == i) {
+    else if (aux == i) {    //se estiver na primeira posição
         reordenada = auxFIFO->pessoa;
         Lista->first = Lista->first->prox;
         free(auxFIFO);
         return reordenada;
     }
     else {
-        while (aux < i)//vai até o ponteiro da posição anterior a célula que se irá reordenar
+        aux2 = auxFIFO;
+        while (aux < i)//vai até o ponteiro da posição da célula que se irá reordenar
         {
-            reordenada = auxFIFO->prox->pessoa; //pega o valor da pessoa que se ira reordenar para retorno
-            aux2 = auxFIFO->prox;               //aponta para a célula a se liberar
-            auxFIFO->prox = auxFIFO->prox->prox;//Faz a célula apontar para o novo próximo
-            free(aux2);                         //libera
-            return reordenada;
+            auxFIFO = auxFIFO->prox;
+            aux++;
         }
+
+        reordenada = auxFIFO->prox->pessoa;         //pega o valor da pessoa que se ira reordenar para retorno
+        aux2 = auxFIFO->prox;                       //aponta para a célula a se liberar
+        auxFIFO->prox = auxFIFO->prox->prox;        //Faz a célula apontar para o novo próximo
+        free(aux2);                                 //libera
+        return reordenada;
     }
 }
 
@@ -279,12 +266,13 @@ void printaFila(lista FIFO) {
         return;
     }
     else {
+        printf("{");
         while(aux != NULL) {
             printf("%c ", aux->pessoa.nome[0]);
 
             aux = aux->prox;
         }
-        printf("\n");
+        printf("}\n");
     }
 }
 //fim printa resultados
@@ -293,7 +281,7 @@ void travaEADDFIFO(argsT *args, Pessoa p) {
     pthread_mutex_lock(&trava_fila);                        //trava a fila
         if (args->FIFO.first != NULL) {
             pthread_cond_wait(&espera_proximo, &trava_fila);    //espera alguem chegar
-                printf("%s chegou na fila ", p.nome);
+                printf("\t\t%s chegou na fila ", p.nome);
                 insereFilaPrior(&(args->FIFO), p);
                 printaFila(args->FIFO);
                 fflush(stdout);
@@ -303,7 +291,7 @@ void travaEADDFIFO(argsT *args, Pessoa p) {
             pthread_cond_signal(&espera_proximo);               //Sinaliza que o próximo pode se inserir na fila
         }
         else {
-            printf("%s chegou na fila ", p.nome);
+            printf("\t\t%s chegou na fila ", p.nome);
             insereFilaPrior(&(args->FIFO), p);
             printaFila(args->FIFO);
             
@@ -332,6 +320,10 @@ void *reordFIFO(void *t) {
 
     while (1)
     {
+        if (args->atendidos == args->qntAtend) {    //espera todos serem atendidos para encerrar
+            pthread_exit(NULL);                            //finaliza programa
+        }
+
         pthread_mutex_lock(&trava_fila);                        //trava a fila
             auxI = 0;
             aux = args->FIFO.first;
@@ -340,7 +332,7 @@ void *reordFIFO(void *t) {
                 if (aux->prox != NULL) {
                     if (aux->pessoa.prioridade < aux->prox->pessoa.prioridade) {    //se a prioridade do que ta na frente é menor do que o que está atras, retira ele da fila e reinsere
                         pReinsert = removeFIFOPReordena(&(args->FIFO), auxI);
-                        printf("%s realocado(a) na fila\n", pReinsert.nome);
+                        printf("\n\t!! %s realocado(a) na fila !!\n\n", pReinsert.nome);
                         fflush(stdout);
                         insereFilaPrior(&(args->FIFO), pReinsert);
                     }
@@ -352,9 +344,6 @@ void *reordFIFO(void *t) {
 
         pthread_mutex_unlock(&trava_fila);
 
-        if (args->FIFO.first == NULL) {
-            break;
-        }
         sleep(esperaReordena);
     }
 }
@@ -448,27 +437,11 @@ void parte1Trab(cidadaos formigopolis, int qntRep) {
 
     //começa o atendimento
     if (qntRep > 0) {
-        //pthread_create(&reordenador, NULL, reordFIFO, &args);
         pthread_create(&caixa, NULL, caixaEle, &args);
     }
 
-    //espera threads
-    /*
-    i = 0;
-    while (i < qntRep)
-    {
-        pthread_join((gravida[i]), NULL);
-        pthread_join((idoso[i]), NULL);
-        pthread_join((defic[i]), NULL);
-        pthread_join((comum[i]), NULL);
-        
-        i++;
-    }
-    */
-
     if (qntRep > 0) {
         pthread_join(caixa, NULL);
-        //pthread_join(reordenador, NULL);
     }
 
     printf("\n\t!! Foram atendidas %d pessoas !! \n\n", args.atendidos);
@@ -539,24 +512,6 @@ void parte2Trab(cidadaos formigopolis, int qntRep) {
         pthread_create(&caixa, NULL, caixaEle, &args);
     }
 
-    //espera threads
-    /*
-    i = 0;
-    while (i < (qntRep * 2))
-    {
-        pthread_join(gravida[i], NULL);
-        pthread_join(idoso[i], NULL);
-        pthread_join(defic[i], NULL);
-        pthread_join(comum[i], NULL);
-
-        i++;
-
-        pthread_join(gravida[i], NULL);
-        pthread_join(idoso[i], NULL);
-        pthread_join(defic[i], NULL);
-        pthread_join(comum[i], NULL);
-    }
-    */
     if (qntRep > 0) {
         pthread_join(caixa, NULL);
         //pthread_join(reordenador, NULL);
