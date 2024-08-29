@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,14 +88,14 @@ typedef struct
 
 //inicializando variaveis pthread
 pthread_mutex_t trava_fila = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t condMaria = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condMarcos = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condVanda = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condValter = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condPaula = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condPedro = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condSueli = PTHREAD_COND_INITIALIZER;
-pthread_cond_t condSilas = PTHREAD_COND_INITIALIZER;
+static sem_t condMaria;
+static sem_t  condMarcos;
+static sem_t  condVanda;
+static sem_t  condValter;
+static sem_t  condPaula;
+static sem_t  condPedro; 
+static sem_t  condSueli;
+static sem_t  condSilas;
 //
 
 //lidar com a lista
@@ -279,26 +280,23 @@ void criaPessoas(Pessoa *p, char *nome, int prioridade, int id) {
 
 //printa resultados:
 void printaAtendido(char *nome) {
-    printf("%s está sendo atendido...\n", nome);
+    printf("%s está sendo atendido(a)\n", nome);
     fflush(stdout);
 }
 
-void printaFila(lista FIFO) {
-    pointer aux = FIFO.first;
+void printaLiberandoP(char *nome) {
+    printf("liberando %s para atendimento\n", nome);
+    fflush(stdout);
+}
 
-    if (aux == NULL) {
-        printf("\n");
-        return;
-    }
-    else {
-        printf("{");
-        while(aux != NULL) {
-            printf("%c ", aux->pessoa.nome[0]);
+void printaTaNaFila (char *nome) {
+    printf("%s está na fila do caixa\n", nome);
+    fflush(stdout);
+}
 
-            aux = aux->prox;
-        }
-        printf("}\n");
-    }
+void printaFoiPCasa(char *nome) {
+    printf("%s vai para casa\n", nome);
+    fflush(stdout);
 }
 //fim printa resultados
 
@@ -331,7 +329,7 @@ void criaThread(pthread_t *valThread, void *funcao, void *args) {
 }
 
 int quantasFilas(int qual, argsT *args) {
-if (qual == 3) {
+    if (qual == 3) {
         if (Empt(args->FIFO4) != 1) {
             return 1;
         }
@@ -346,6 +344,7 @@ if (qual == 3) {
             return 1;
         }
     }
+    return -1;
 }
 
 void qualFilaInserir(Pessoa p, argsT *args) {
@@ -483,6 +482,7 @@ void aumentaPrioridadeEsperando(pointer aux) {
     {
         aux->pessoa.espera++;
         if (aux->pessoa.espera >= medidorPaciencia) {
+            printf("Gerente detectou inanição, aumentando prioridade de %s\n", aux->pessoa.nome);
             aux->pessoa.espera = 0;
             aux->pessoa.prioridade++;
         }
@@ -518,6 +518,33 @@ void aumentaPrioridadeFila (argsT *args, int qual) {
     }
 }
 
+void sinalizaAtendido (Pessoa P) {
+    if (P.id == 1) {
+        sem_post(&condMaria);
+    }
+    else if (P.id == 2) {
+        sem_post(&condMarcos);
+    }
+    else if (P.id == 3) {
+        sem_post(&condVanda);
+    }
+    else if (P.id == 4) {
+        sem_post(&condValter);
+    }
+    else if (P.id == 5) {
+        sem_post(&condPaula);
+    }
+    else if (P.id == 6) {
+        sem_post(&condPedro);
+    }
+    else if (P.id == 7) {
+        sem_post(&condSueli);
+    }
+    else if (P.id == 8) {
+        sem_post(&condSilas);
+    }
+}
+
 //thread caixa
 void* caixaEle(void *t) {
     argsT *args = (argsT *) t;
@@ -526,6 +553,7 @@ void* caixaEle(void *t) {
 
     while (1)
     {
+        sleep(esperaCaixa);
         pthread_mutex_lock(&trava_fila);                        //trava a fila
             if (args->atendidos == args->qntAtend) {//condição de parada
                 pthread_mutex_unlock(&trava_fila);
@@ -537,41 +565,32 @@ void* caixaEle(void *t) {
                 
                 sort = ((rand() % 5) + 2);
                 if (sort == 2) {                    //libera o deficiente
+                    printaLiberandoP(args->FIFO2.first->pessoa.nome);
                     printaAtendido(args->FIFO2.first->pessoa.nome);   //printa quem está sendo atendido
-                    atendido = removeFIFO(&(args->FIFO2));  
+                    atendido = removeFIFO(&(args->FIFO2));
+                    printaFoiPCasa(atendido.nome);  
 
-                    if (atendido.id == 5) {
-                        pthread_cond_signal(&condPaula);
-                    }
-                    else {
-                        pthread_cond_signal(&condPedro);
-                    }
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 2);
                 }
                 else if (sort == 3) {                        //libera o idoso
+                    printaLiberandoP(args->FIFO3.first->pessoa.nome);
                     printaAtendido(args->FIFO3.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO3));
-                
-                    if (atendido.id == 3) {
-                        pthread_cond_signal(&condVanda);
-                    }
-                    else {
-                        pthread_cond_signal(&condValter);
-                    }
+                    printaFoiPCasa(atendido.nome);
+
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 3);
                 }
                 else {                              //libera a gravida
+                    printaLiberandoP(args->FIFO4.first->pessoa.nome);
                     printaAtendido(args->FIFO4.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO4));
-                
-                    if (atendido.id == 1) {
-                        pthread_cond_signal(&condMaria);
-                    }
-                    else {
-                        pthread_cond_signal(&condMarcos);
-                    }
+                    printaFoiPCasa(atendido.nome);
+
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 4);
                 }
@@ -584,52 +603,36 @@ void* caixaEle(void *t) {
                 if (Empt(args->FIFO4) != 1) {
                     printaAtendido(args->FIFO4.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO4));
+                    printaFoiPCasa(atendido.nome);
 
-                    if (atendido.id == 1) {
-                        pthread_cond_signal(&condMaria);
-                    }
-                    else {
-                        pthread_cond_signal(&condMarcos);
-                    }
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 4);
                 }
                 else if (Empt(args->FIFO3) != 1) {
                     printaAtendido(args->FIFO3.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO3)); 
+                    printaFoiPCasa(atendido.nome);
 
-                    if (atendido.id == 3) {
-                        pthread_cond_signal(&condVanda);
-                    }
-                    else {
-                        pthread_cond_signal(&condValter);
-                    }
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 3);
                 }
                 else if (Empt(args->FIFO2) != 1) {
                     printaAtendido(args->FIFO2.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO2)); 
-                    
-                    if (atendido.id == 5) {
-                        pthread_cond_signal(&condPaula);
-                    }
-                    else {
-                        pthread_cond_signal(&condPedro);
-                    }
+                    printaFoiPCasa(atendido.nome);
+
+                    sinalizaAtendido(atendido);
 
                     aumentaPrioridadeFila(args, 2);
                 }
                 else if (Empt(args->FIFO1) != 1) {
                     printaAtendido(args->FIFO1.first->pessoa.nome);   //printa quem está sendo atendido
                     atendido = removeFIFO(&(args->FIFO1)); 
-                
-                    if (atendido.id == 7) {
-                        pthread_cond_signal(&condSueli);
-                    }
-                    else {
-                        pthread_cond_signal(&condSilas);
-                    }
+                    printaFoiPCasa(atendido.nome);
+
+                    sinalizaAtendido(atendido);
                 }
 
                 //USADO SOMENTE PARA DEPURAÇÃO | FIRULAS
@@ -651,12 +654,13 @@ void* pGravida(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.gravidas[0]);
+        printaTaNaFila(args->formigopolis.gravidas[0].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condMaria, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condMaria);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -671,12 +675,13 @@ void *pIdosa(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.idoso[0]);
+        printaTaNaFila(args->formigopolis.idoso[0].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condVanda, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condVanda);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -691,12 +696,13 @@ void *pDefic(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.deficiente[0]);
+        printaTaNaFila(args->formigopolis.deficiente[0].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condPaula, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condPaula);
 
-        sleep(tempoEsperaPessoa);
+            sleep(((rand() % 3) + 3));    
+        }
 
         i++;
     }
@@ -711,12 +717,13 @@ void *pComum(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.comum[0]);
+        printaTaNaFila(args->formigopolis.comum[0].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condSueli, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condSueli);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -733,12 +740,13 @@ void* pGravida2(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.gravidas[1]);
+        printaTaNaFila(args->formigopolis.gravidas[1].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condMarcos, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condMarcos);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -753,12 +761,13 @@ void *pIdosa2(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.idoso[1]);
+        printaTaNaFila(args->formigopolis.idoso[1].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condValter, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condValter);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -773,12 +782,13 @@ void *pDefic2(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.deficiente[1]);
+        printaTaNaFila(args->formigopolis.deficiente[1].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condPedro, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
-
-        sleep(tempoEsperaPessoa);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condPedro);
+        
+            sleep(((rand() % 3) + 3));
+        }
 
         i++;
     }
@@ -793,13 +803,14 @@ void *pComum2(void *t) {
     while (i < args->qntRep)
     {
         travaEADDFIFO(args, args->formigopolis.comum[1]);
+        printaTaNaFila(args->formigopolis.comum[1].nome);
 
-        pthread_mutex_lock(&trava_fila);
-            pthread_cond_wait(&condSilas, &trava_fila);
-        pthread_mutex_unlock(&trava_fila);
+        if (i < args->qntRep - 1) {
+            sem_wait(&condSilas);
 
-        sleep(tempoEsperaPessoa);
-
+            sleep(((rand() % 3) + 3));
+        }
+        
         i++;
     }
     pthread_exit(NULL);                            //finaliza programa
@@ -834,19 +845,17 @@ void parte2Trab(cidadaos formigopolis, int qntRep) {
 
     if (qntRep > 0) {
         pthread_join(caixa, NULL);
-        //pthread_join(reordenador, NULL);
+        pthread_join(reordenador, NULL);
     }
     
-    printf("\n\t!! Foram atendidas %d pessoas !! \n\n", args.atendidos);
+    //printf("\n\t!! Foram atendidas %d pessoas !! \n\n", args.atendidos);
 }
 //fim principal
 //fim parte 2
 
-int main () {
+int main (int argc, char const *argv[]) {
     cidadaos formigopolis;
-    Pessoa Grav[2], Idoso[2], Defic[2], Comum[2];
-    lista fifoPrior;
-    int vetP1[atendPart1], vetP2[atendPart2], op = -1, qntRep = 1;
+    int qntRep = atoi(argv[1]);
 
     srand(time(NULL));
     
@@ -868,34 +877,28 @@ int main () {
         criaPessoas(&(formigopolis.comum[1]), "Silas", priorComum, 8);
     //fim criando as pessoas
 
-    while (op != 0) {
-        printf("\n\t\t!! Escolha !! \n0: Finalizar  |  1: Iniciar simulação \n- ");
-        scanf("%d", &op);
+    //inicia semaforos
+    sem_init(&condMaria, 0, 0);
+    sem_init(&condMarcos, 0, 0);
+    sem_init(&condVanda, 0, 0);
+    sem_init(&condValter, 0, 0);
+    sem_init(&condPaula, 0, 0);
+    sem_init(&condPedro, 0, 0);
+    sem_init(&condSueli, 0, 0);
+    sem_init(&condSilas, 0, 0);
+    //fim semaforos
 
-        switch (op)
-        {
-        case 0:
-            break;
-        case 1:
-            printf("\tDigite quantas vezes cada pessoa irá utilizar o caixa:\n- ");
-            scanf("%d", &qntRep);
-            parte2Trab(formigopolis, qntRep);
-            break;
-        default:
-            printf("\n\t! OPÇÃO INVÁLIDA !\n");
-            break;
-        }
-    }
+    parte2Trab(formigopolis, qntRep);
 
     //destruindo mutex e var de condição
     pthread_mutex_destroy(&trava_fila);
-    pthread_cond_destroy(&condMaria);
-    pthread_cond_destroy(&condMarcos);
-    pthread_cond_destroy(&condVanda);
-    pthread_cond_destroy(&condValter);
-    pthread_cond_destroy(&condPaula);
-    pthread_cond_destroy(&condPedro);
-    pthread_cond_destroy(&condSueli);
-    pthread_cond_destroy(&condSilas);
+    sem_destroy(&condMaria);
+    sem_destroy(&condMarcos);
+    sem_destroy(&condVanda);
+    sem_destroy(&condValter);
+    sem_destroy(&condPaula);
+    sem_destroy(&condPedro);
+    sem_destroy(&condSueli);
+    sem_destroy(&condSilas);
     return 0;
 }
